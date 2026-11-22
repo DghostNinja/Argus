@@ -6,5 +6,5 @@ __pycache__/
 .ruff_cache/
 data/
 
-# Internal design notes are not published; Barrel source details stay private.
-docs/
+# Internal design notes stay local; public docs live in docs/.
+docs/internal/

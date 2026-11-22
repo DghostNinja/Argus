@@ -35,6 +35,7 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 The MCP server exposes 28 tools. The Barrel 0.5.0 build exposes 43, including
 the structured traffic tools Argus uses. See the
 [Barrel docs](https://barrelhq.org/docs) for installation and release notes.
+Design details and tradeoffs are in [docs/architecture.md](docs/architecture.md).
 
 ## How it works
 
