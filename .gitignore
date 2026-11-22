@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+data/
+
+# Internal design notes are not published; Barrel source details stay private.
+docs/

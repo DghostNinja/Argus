@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "barrel": {
+      "type": "local",
+      "command": ["/home/ipsalmy/Test/Barrel/src-tauri/target/debug/barrel-mcp"],
+      "enabled": true
+    },
+    "argus": {
+      "type": "local",
+      "command": ["python3", "/home/ipsalmy/Test/Argus/argus_mcp.py"],
+      "enabled": true,
+      "environment": {
+        "ARGUS_BARREL_BIN": "/home/ipsalmy/Test/Barrel/src-tauri/target/debug/barrel-mcp",
+        "ARGUS_DATA_DIR": "/home/ipsalmy/.local/share/argus"
+      }
+    }
+  }
+}
