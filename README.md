@@ -33,7 +33,8 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 | 5 | Reporting, severity, export | Planned |
 
 The MCP server exposes 28 tools. The Barrel 0.5.0 build exposes 43, including
-the structured traffic tools Argus uses.
+the structured traffic tools Argus uses. See the
+[Barrel docs](https://barrelhq.org/docs) for installation and release notes.
 
 ## How it works
 
@@ -85,11 +86,12 @@ as a lead, not proof.
 
 - Linux host with Python 3.11 or newer.
 - `adb` on `PATH` and a ready device or emulator.
-- A Barrel 0.5.0 build from the public releases repo:
+- A Barrel 0.5.0+ build from the public releases repo:
   [github.com/DghostNinja/barrel-releases/releases](https://github.com/DghostNinja/barrel-releases/releases).
-  Barrel source is private; end users install the released `barrel-mcp` binary
-  and point Argus at it. They do not clone or build Barrel. Barrel docs:
-  [dghostninja.github.io/barrel/docs.html#mcp](https://dghostninja.github.io/barrel/docs.html#mcp).
+  Earlier releases lack the structured traffic tools Argus needs. Barrel source
+  is private; end users install the released `barrel-mcp` binary and point Argus
+  at it. They do not clone or build Barrel. Docs:
+  [barrelhq.org/docs](https://barrelhq.org/docs).
 - Python dependencies (`mcp`, `httpx`, `pydantic`):
 
 ```sh
