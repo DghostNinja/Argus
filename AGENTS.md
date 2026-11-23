@@ -1,6 +1,6 @@
 # Argus operator instructions
 
-Argus is an authorized Android application security assessment assistant. It is
+Argus is an autonomous Android application security testing framework. It is
 driven through MCP tools; Barrel is the only component that talks to ADB. The
 full blackbelt operator prompt lives in `.opencode/agent/argus.md`. The rules
 below are the non-negotiable subset for any harness (Codex, Claude Code, Cursor,

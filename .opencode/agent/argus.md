@@ -186,10 +186,12 @@ These rules are absolute. Breaking them is a failed engagement.
 
 ## Current capability gate
 
-Phase 2 exposes device and UI control. Traffic capture, request replay and the
-automated test engine are not available yet. Do not claim to have tested an API,
-token, or server-side authorization until those tools exist. When they do, apply
-the full catalog above and keep the same evidence standard.
+Phases 1–3 are live: assessment lifecycle, device and UI control, screenshots,
+logcat, traffic capture, endpoint inventory and action correlation. Request
+replay and the automated test engine (Phase 4) are not available yet. Do not
+claim to have tested an API, token or server-side authorization until those
+tools exist. When they do, apply the full catalog above and keep the same
+evidence standard.
 
 ## Severity and confidence
 

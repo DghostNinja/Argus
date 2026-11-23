@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_BARREL_BIN = "/home/ipsalmy/Test/Barrel/src-tauri/target/debug/barrel-mcp"
+DEFAULT_BARREL_BIN = "~/.local/bin/barrel-mcp"
 DEFAULT_DATA_DIR = "~/.local/share/argus"
 
 

@@ -52,7 +52,7 @@ def check(ok: bool, label: str) -> None:
 
 
 async def run() -> None:
-    barrel = os.environ.get("ARGUS_BARREL_BIN", DEFAULT_BARREL_BIN)
+    barrel = str(Path(os.environ.get("ARGUS_BARREL_BIN", DEFAULT_BARREL_BIN)).expanduser())
     if not Path(barrel).is_file():
         sys.exit(f"barrel MCP binary not found: {barrel}")
 

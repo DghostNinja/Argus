@@ -1,15 +1,17 @@
 # Argus
 
-Argus is an authorized Android application security assessment assistant. It
-gives an AI agent a safe, structured way to drive a device, discover endpoints
-through a proxy, and record evidence, while Barrel remains the only component
-that talks to ADB. Barrel is a proprietary, closed-source component distributed
-as a signed binary; its source is not public.
+Argus is an autonomous Android application security testing framework built
+for enterprise-grade DAST, IAST and SAST-style mobile testing. It plans,
+executes and evidences full assessments — configure a target, prove the device,
+explore the UI, capture traffic, run controlled tests, then report — so testers
+can hand off a scoped engagement and focus on other work. Barrel remains the
+only component that talks to ADB; Barrel is proprietary and distributed as a
+signed binary release.
 
-Argus is not an autonomous exploit bot. It is an assessment engine with a
-deliberate workflow: configure a target, prove the device, explore the UI,
-capture traffic, then test and report. Every action is state-gated, every secret
-is redacted, and every result is stored with evidence.
+Autonomy runs inside engine-enforced safety controls, not prompt promises:
+authorization, scope, pause and stop are checked in code, every action is
+state-gated, every secret is redacted, and every result is stored with
+reproducible evidence.
 
 ```
 MCP-capable agent (OpenCode, Claude Code, Codex, Cursor, ...)
@@ -31,6 +33,10 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 | 3 | Proxy capture, CA install, routing, endpoint inventory, action correlation | Done |
 | 4 | Controlled security tests and request replay | Planned |
 | 5 | Reporting, severity, export | Planned |
+| 6 | Autonomous campaigns: unattended scoped runs, scheduling, device pools, regression diff | Planned |
+| 7 | APK static triage: manifest, exported components, secrets, pinning config (SAST) | Planned |
+| 8 | Runtime instrumentation via Frida: crypto/SSL checks, tamper and pinning detection (IAST) | Planned |
+| 9 | Enterprise integration: headless CI, SARIF export, policy profiles, audit trail | Planned |
 
 The MCP server exposes 28 tools. The Barrel 0.4.0 build exposes 43, including
 the structured traffic tools Argus uses. See the
@@ -187,12 +193,13 @@ env = { ARGUS_BARREL_BIN = "/path/to/barrel-mcp-linux-amd64", ARGUS_DATA_DIR = "
 **Cursor** (`.cursor/mcp.json`) and **Gemini CLI** (`~/.gemini/settings.json`)
 use the same `mcpServers` object as Claude Code.
 
-The checked-in `.opencode/opencode.jsonc` uses absolute development paths.
-Replace them with your installed binary locations for a public setup. The
-harness-neutral operator prompt is in `.opencode/agent/argus.md`; copy it into
-the system prompt or project instructions of whichever harness you use. Root
-`AGENTS.md` and `CLAUDE.md` make the same rules discoverable to Codex and
-Claude Code automatically.
+The checked-in `.opencode/opencode.jsonc` uses portable defaults: a relative
+path to `argus_mcp.py` in this clone and `~/.local/bin/barrel-mcp` for the
+Barrel release binary. Override `ARGUS_BARREL_BIN` if your binary is installed
+elsewhere. The harness-neutral operator prompt is in `.opencode/agent/argus.md`;
+copy it into the system prompt or project instructions of whichever harness you
+use. Root `AGENTS.md` and `CLAUDE.md` make the same rules discoverable to Codex
+and Claude Code automatically.
 
 ### 4. Smoke test without a device
 
@@ -366,7 +373,7 @@ are sanitized and cannot traverse directories.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `ARGUS_BARREL_BIN` | `../Barrel/src-tauri/target/debug/barrel-mcp` | Installed Barrel MCP binary |
+| `ARGUS_BARREL_BIN` | `~/.local/bin/barrel-mcp` | Installed Barrel MCP binary |
 | `ARGUS_DATA_DIR` | `~/.local/share/argus` | Assessment store |
 | `ARGUS_CALL_TIMEOUT` | `60` | Per-tool timeout in seconds |
 | `ARGUS_REDACT_EXTRA` | empty | Extra comma-separated regexes to redact |
@@ -413,18 +420,18 @@ assessment state machine, capture flow with a fake Barrel, inventory
 normalization, correlation and evidence writing. No device is needed for unit
 tests or the smoke test.
 
-## Known limits and roadmap
+## Known limits
 
 - Phase 4 replay and controlled tests are not implemented yet. `httpx` is
-  reserved for that.
+  reserved for that. Planned phases 4–9 are listed in the phase table above.
 - The capture window is the 200 most recent Barrel entries.
 - Correlation is timing-based and can attribute background traffic to the wrong
   action.
 - Transparent proxy mode is not exposed through Argus yet; the standalone Barrel
   server owns a different proxy process, so use it only for diagnosis.
 - `uiautomator` cannot see some Compose, Flutter, game and `FLAG_SECURE` screens.
-- Burp Suite is not installed on this host. The backend is pluggable, so a Burp
-  or Caido backend can be added without changing the assessment engine.
+- The capture backend is pluggable, so a Burp or Caido backend can be added
+  without changing the assessment engine.
 
 ## License and distribution
 

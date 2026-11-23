@@ -107,7 +107,7 @@ def is_decrypted(entry: dict, host: str) -> bool:
 
 
 async def run(args: argparse.Namespace) -> None:
-    barrel = os.environ.get("ARGUS_BARREL_BIN", DEFAULT_BARREL_BIN)
+    barrel = str(Path(os.environ.get("ARGUS_BARREL_BIN", DEFAULT_BARREL_BIN)).expanduser())
     if not Path(barrel).is_file():
         sys.exit(f"barrel MCP binary not found: {barrel}")
     if not shutil.which("adb"):

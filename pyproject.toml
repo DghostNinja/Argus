@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "argus"
 version = "0.1.0"
-description = "AI-assisted Android application security testing built on Barrel"
+description = "Autonomous Android application security testing framework built on Barrel"
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=1.0,<2",

@@ -1,12 +1,11 @@
 # Argus architecture
 
-This is the public design record for Argus. It explains the boundaries, the
-state model, the traffic pipeline and the decisions that shape later phases. It
-deliberately omits Barrel implementation details and internal notes.
+This document explains the boundaries, the state model, the traffic pipeline
+and the decisions that shape later phases.
 
 ## 1. Purpose
 
-Argus is an authorized Android application security assessment assistant. It
+Argus is an autonomous Android application security testing framework. It
 gives an AI agent a structured way to:
 
 - prove a target and device before touching anything,
@@ -14,10 +13,12 @@ gives an AI agent a structured way to:
 - capture traffic through a proxy,
 - build an endpoint inventory,
 - record reproducible evidence,
-- and, in later phases, run controlled security tests.
+- and, in later phases, run controlled security tests autonomously.
 
-Argus is not a general automation framework and not an autonomous exploit bot.
-It is a state machine with a small, auditable tool surface.
+Autonomy is the goal: a tester scopes an assessment and Argus executes the
+workflow unattended, inside engine-enforced authorization, scope and stop
+controls. It remains a state machine with a small, auditable tool surface —
+enterprise reliability comes from gates in code, not from the prompt.
 
 ## 2. Boundaries
 
@@ -182,7 +183,6 @@ Rules:
 | Engine-enforced gates | The model cannot be trusted to enforce safety | Some workflows need explicit operator steps |
 | Redaction before storage | Evidence is shareable and safe | Replay needs live auth, not stored secrets |
 | Timing-based correlation | No app instrumentation required | Inferred, can misattribute |
-| Public architecture, private internals | Safe distribution of the design | Deep implementation notes stay out of the repo |
 
 ## 11. Extension points
 
@@ -192,20 +192,24 @@ Rules:
   variant comparison, auth/authz/API/logic modules.
 - **Reporting (Phase 5):** JSON canonical output plus Markdown/HTML, with
   confirmed and candidate findings separated.
+- **Campaigns (Phase 6):** goal-driven unattended runs, scheduling, checkpoint
+  and resume, device pools, regression diffing against a previous run.
+- **Static triage (Phase 7):** APK manifest and artifact analysis that feeds
+  hypotheses into the dynamic engine.
+- **Runtime instrumentation (Phase 8):** Frida-based hooks through Barrel for
+  crypto, TLS validation and tamper evidence.
+- **Enterprise integration (Phase 9):** headless CI mode, SARIF export, policy
+  profiles and audit trails.
 - **Runtime checks:** pinning, root and tamper detection through the existing
   instrumentation surface.
 - **Harnesses:** any MCP stdio client can drive the same tool surface.
 
 ## 12. Non-goals
 
-- Unattended exploitation or lateral movement.
-- Destructive testing, data exfiltration or denial of service.
+- Out-of-scope testing: work outside the configured package, device or host
+  allowlist, even unattended.
+- Lateral movement, persistence, destructive testing, data exfiltration or
+  denial of service.
 - Financial transactions or real-user data.
 - Replacing Barrel's device tooling.
 - Guaranteeing full traffic visibility on pinned or non-HTTP transports.
-
-## 13. Public and private boundary
-
-This document is public and intentionally contains no Barrel source paths,
-internal implementation details, licensing internals or host-specific data.
-Deeper design notes are kept out of this repository.

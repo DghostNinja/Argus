@@ -37,8 +37,9 @@ class BarrelClient:
             binary = Path(self.config.barrel_bin)
             if not binary.is_file():
                 raise BarrelError(
-                    f"barrel-mcp binary not found: {binary}. Build it with: "
-                    "cargo build --features mcp-server --bin barrel-mcp"
+                    f"barrel-mcp binary not found: {binary}. Install a Barrel "
+                    "release and set ARGUS_BARREL_BIN "
+                    "(https://barrelhq.org/docs)"
                 )
             if not os.access(binary, os.X_OK):
                 raise BarrelError(f"barrel-mcp is not executable: {binary}")

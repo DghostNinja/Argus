@@ -16,8 +16,8 @@ from .models import Assessment
 from .orchestrator import Orchestrator, parse_device_serials
 from .store import AssessmentStore
 
-INSTRUCTIONS = """Argus is an authorized Android application security assessment
-assistant built on Barrel. Workflow: assessment_create, assessment_configure,
+INSTRUCTIONS = """Argus is an autonomous Android application security testing
+framework built on Barrel. Workflow: assessment_create, assessment_configure,
 assessment_start, app_install, app_launch, then explore with ui_dump, ui_find,
 ui_tap_node, ui_text, ui_key and ui_swipe. For traffic discovery call
 capture_start, drive the app, then capture_entries; capture_stop stores redacted
