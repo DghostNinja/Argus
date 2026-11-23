@@ -32,7 +32,7 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 | 4 | Controlled security tests and request replay | Planned |
 | 5 | Reporting, severity, export | Planned |
 
-The MCP server exposes 28 tools. The Barrel 0.5.0 build exposes 43, including
+The MCP server exposes 28 tools. The Barrel 0.4.0 build exposes 43, including
 the structured traffic tools Argus uses. See the
 [Barrel docs](https://barrelhq.org/docs) for installation and release notes.
 Design details and tradeoffs are in [docs/architecture.md](docs/architecture.md).
@@ -87,7 +87,7 @@ as a lead, not proof.
 
 - Linux host with Python 3.11 or newer.
 - `adb` on `PATH` and a ready device or emulator.
-- A Barrel 0.5.0+ build from the public releases repo:
+- A Barrel 0.4.0+ build from the public releases repo:
   [github.com/DghostNinja/barrel-releases/releases](https://github.com/DghostNinja/barrel-releases/releases).
   Earlier releases lack the structured traffic tools Argus needs. Barrel source
   is private; end users install the released `barrel-mcp` binary and point Argus
@@ -397,7 +397,7 @@ No credential, token or API key is read from source or written to the store.
 | `trust` / `pinning` error | App pins certificates | Record as a finding; do not bypass blindly |
 | Empty `ui_dump` | Compose, Flutter, game or `FLAG_SECURE` | Use `screenshot` and coordinates |
 | Proxy ignored by app | App bypasses system proxy | Root + Barrel `traffic_transparent_set` (separate process; see limits) |
-| `barrel MCP binary not found` | Barrel not installed or wrong path | Install a Barrel 0.5.0 release; set `ARGUS_BARREL_BIN` |
+| `barrel MCP binary not found` | Barrel not installed or wrong path | Install a Barrel 0.4.0 release; set `ARGUS_BARREL_BIN` |
 | Store permission error | Bad `ARGUS_DATA_DIR` | Use a writable directory; do not loosen permissions |
 
 ## Development
