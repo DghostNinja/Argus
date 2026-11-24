@@ -30,7 +30,7 @@ Barrel (device truth)           Argus (state, evidence, tests)
   |                                 |
   +--> adb / frida-server           +--> Barrel MCP client
                                     +--> assessment store
-                                    +--> replay engine (Phase 4)
+                                    +--> replay engine
 ```
 
 - **Barrel** is the only component that talks to ADB. It owns device state,
@@ -73,7 +73,9 @@ created -> configured -> device_ready -> installed -> explored -> testing
 - `device_ready`: Barrel confirmed a ready device and the serial was chosen.
 - `installed`: the APK was installed successfully.
 - `explored`: the UI hierarchy was read at least once.
-- `testing`: reserved for the Phase 4 test engine.
+- `testing`: opened by `testing_begin` once a device is ready (or after
+  exploration when the assessment ran that far); unlocks replay and finding
+  tools. API-only targets may skip install and exploration.
 - `paused`: every device action is refused until resume.
 - `stopped`: terminal for the session; resume cannot undo it.
 
@@ -84,9 +86,9 @@ stored state. The orchestrator, not the model, enforces order.
 
 ```
 $ARGUS_DATA_DIR/assessments/<32 hex id>/
-  assessment.json      # state, target, APK hash, endpoints, steps
+  assessment.json      # state, target, APK hash, endpoints, steps, findings
   events.jsonl         # redacted action log
-  evidence/            # screenshots, traffic snapshots, inventory
+  evidence/            # screenshots, traffic snapshots, replay runs, inventory
 ```
 
 - Directories are `0700`; files are `0600`.
@@ -171,6 +173,10 @@ Rules:
 - UI XML is size-capped and DTD/entity declarations are rejected.
 - Credentials are never stored; `sensitive=true` drops the value from events.
 - Traffic headers, URLs and text bodies are redacted before storage.
+- Replay requires the `testing` state, a non-destructive method and an
+  allowlisted host; public hosts additionally require `allow_production`.
+- Auth headers live in process memory only, keyed per assessment and host;
+  events and evidence record header names, never values.
 
 ## 10. Key decisions and tradeoffs
 
@@ -188,8 +194,9 @@ Rules:
 
 - **Capture backend:** implement the proxy interface for Burp, Caido or a custom
   proxy.
-- **Test engine (Phase 4):** replay with preserved auth context, baseline and
-  variant comparison, auth/authz/API/logic modules.
+- **Test engine (Phase 4, partial):** single-request replay with in-memory auth
+  context, baseline/variant comparison and a findings pipeline are built;
+  canned auth/authz/API/logic modules and randomized test plans remain open.
 - **Reporting (Phase 5):** JSON canonical output plus Markdown/HTML, with
   confirmed and candidate findings separated.
 - **Campaigns (Phase 6):** goal-driven unattended runs, scheduling, checkpoint

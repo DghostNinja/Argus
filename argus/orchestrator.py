@@ -5,14 +5,33 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .barrel_client import BarrelClient
 from .config import Config
 from .errors import ArgusError, StateError, ValidationError
 from .explore.ui import UiNode, best_node, find_nodes, parse_hierarchy
-from .models import Assessment, AssessmentState, utc_now
+from .models import (
+    CONFIDENCES,
+    FINDING_STATUSES,
+    SEVERITIES,
+    Assessment,
+    AssessmentState,
+    Finding,
+    utc_now,
+)
 from .redact import SENSITIVE_HEADERS, redact_text
+from .replay import (
+    AUTH_HEADER_NAMES,
+    ReplayEngine,
+    check_body,
+    check_headers,
+    check_method,
+    check_target,
+    compare_replay_payloads,
+)
 from .store import AssessmentStore
 from .traffic.barrel_backend import BarrelBackend
 from .traffic.correlate import correlate, windows_from_events
@@ -22,13 +41,23 @@ from .traffic.models import TrafficRecord
 _PACKAGE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _DEVICE_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.*:_-]+$")
+_FINDING_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _ACTIVE_STATES = {
     AssessmentState.DEVICE_READY,
     AssessmentState.INSTALLED,
     AssessmentState.EXPLORED,
     AssessmentState.TESTING,
 }
+_TESTING_STATES = {
+    AssessmentState.DEVICE_READY,
+    AssessmentState.INSTALLED,
+    AssessmentState.EXPLORED,
+    AssessmentState.TESTING,
+}
 _MAX_TEXT = 4096
+_MAX_TITLE = 200
+_MAX_DESCRIPTION = 4000
+_MAX_FINDINGS = 200
 
 
 def parse_device_serials(output: str) -> list[str]:
@@ -111,10 +140,20 @@ def _redact_record(record: TrafficRecord, extra: tuple[str, ...]) -> dict:
 
 
 class Orchestrator:
-    def __init__(self, config: Config, store: AssessmentStore, barrel: BarrelClient):
+    def __init__(
+        self,
+        config: Config,
+        store: AssessmentStore,
+        barrel: BarrelClient,
+        replay: ReplayEngine | None = None,
+    ):
         self.config = config
         self.store = store
         self.barrel = barrel
+        self.replay = replay or ReplayEngine(config)
+        # Live auth headers, keyed by (assessment_id, host). Memory only:
+        # never persisted, never written to events beyond header names.
+        self._auth: dict[tuple[str, str], dict[str, str]] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -529,6 +568,7 @@ class Orchestrator:
         self._ensure_state(assessment, *_ACTIVE_STATES)
         count = max(1, min(int(limit), 200))
         records = await BarrelBackend(self.barrel).entries(count)
+        self._snapshot_auth(assessment_id, records)
         extra = self.config.redact_extra
         entries = [
             {
@@ -562,6 +602,7 @@ class Orchestrator:
             records = await backend.entries(200)
         except ArgusError as exc:
             warnings.append(f"entries: {exc}")
+        self._snapshot_auth(assessment_id, records)
 
         inventory = build_inventory(records)
         assessment.endpoints = inventory
@@ -595,6 +636,7 @@ class Orchestrator:
                 "endpoints": len(inventory),
                 "traffic": traffic_path.name,
                 "inventory": inventory_path.name,
+                "auth_snapshot": self._auth_summary(assessment_id),
             },
         )
         return {
@@ -630,7 +672,342 @@ class Orchestrator:
             ],
         }
 
+    # -- testing, replay and findings --------------------------------------
+
+    async def testing_begin(self, assessment_id: str) -> Assessment:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        if assessment.state == AssessmentState.TESTING:
+            return assessment
+        self._ensure_state(
+            assessment,
+            AssessmentState.DEVICE_READY,
+            AssessmentState.INSTALLED,
+            AssessmentState.EXPLORED,
+        )
+        assessment.state = AssessmentState.TESTING
+        assessment.add_step("testing")
+        self.store.save(assessment)
+        self.store.append_event(assessment_id, "testing_begun")
+        return assessment
+
+    async def auth_set(
+        self, assessment_id: str, host: str, headers: dict
+    ) -> dict:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, *_TESTING_STATES)
+        clean_host = _check_hosts([host])[0]
+        if clean_host not in assessment.target.allowed_hosts:
+            raise ValidationError(f"host {clean_host} is not in allowed_hosts")
+        clean = check_headers(headers)
+        if not clean:
+            raise ValidationError("auth_set needs at least one header")
+        unknown = [
+            name
+            for name in clean
+            if name.lower() not in AUTH_HEADER_NAMES
+        ]
+        if unknown:
+            raise ValidationError(
+                "auth_set only accepts auth headers: "
+                + ", ".join(sorted(AUTH_HEADER_NAMES))
+            )
+        key = (assessment_id, clean_host)
+        stored = self._auth.setdefault(key, {})
+        stored.update(clean)
+        self.store.append_event(
+            assessment_id,
+            "auth_set",
+            {"host": clean_host, "headers": sorted(name.lower() for name in clean)},
+        )
+        return {
+            "ok": True,
+            "host": clean_host,
+            "headers": sorted(name.lower() for name in stored),
+        }
+
+    async def auth_clear(self, assessment_id: str, host: str | None = None) -> dict:
+        self._load(assessment_id)
+        removed = 0
+        for key in list(self._auth):
+            key_assessment, key_host = key
+            if key_assessment != assessment_id:
+                continue
+            if host is not None and key_host != host.strip().lower():
+                continue
+            del self._auth[key]
+            removed += 1
+        self.store.append_event(
+            assessment_id,
+            "auth_cleared",
+            {"host": host.strip().lower() if host else None, "slots": removed},
+        )
+        return {"ok": True, "cleared": removed}
+
+    async def replay_send(
+        self,
+        assessment_id: str,
+        method: str,
+        url: str,
+        headers: dict | None = None,
+        body: str | None = None,
+        use_auth: bool = True,
+    ) -> dict:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, AssessmentState.TESTING)
+        clean_method = check_method(method)
+        if not isinstance(url, str) or len(url) > 4096:
+            raise ValidationError("url must be a string of at most 4096 characters")
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValidationError("url must be an absolute http(s) URL")
+        host = parts.hostname.lower()
+        check_target(
+            host,
+            assessment.target.allowed_hosts,
+            assessment.target.allow_production,
+        )
+        clean_headers = check_headers(headers)
+        clean_body = check_body(body)
+
+        merged: dict[str, str] = {}
+        if use_auth:
+            merged.update(self._auth.get((assessment_id, host), {}))
+        merged.update(clean_headers)
+
+        result = await self.replay.send(clean_method, url, merged, clean_body)
+
+        stamp = utc_now().replace(":", "").replace("-", "").replace("+", "_")
+        evidence_name = f"replay-{stamp}-{uuid.uuid4().hex[:6]}.json"
+        payload = {
+            "ts": utc_now(),
+            "request": {
+                "method": clean_method,
+                "url": redact_text(url, self.config.redact_extra),
+                "headers": result.request_headers,
+                "body": result.request_body,
+                "auth_used": bool(use_auth and self._auth.get((assessment_id, host))),
+            },
+            "response": {
+                "status": result.status,
+                "content_type": result.content_type,
+                "duration_ms": result.duration_ms,
+                "headers": result.response_headers,
+                "body": result.response_body,
+                "body_omitted": result.body_omitted,
+            },
+        }
+        self.store.write_evidence(
+            assessment_id,
+            evidence_name,
+            json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"),
+        )
+        detail = {
+            "method": clean_method,
+            "host": host,
+            "path": parts.path or "/",
+            "status": result.status,
+            "duration_ms": result.duration_ms,
+            "evidence": evidence_name,
+        }
+        self.store.append_event(
+            assessment_id, "replay_sent", detail, extra_patterns=self.config.redact_extra
+        )
+        return {
+            "ok": True,
+            "evidence": evidence_name,
+            "method": clean_method,
+            "url": url,
+            "status": result.status,
+            "content_type": result.content_type,
+            "duration_ms": result.duration_ms,
+            "request_headers": result.request_headers,
+            "request_body": result.request_body,
+            "response_headers": result.response_headers,
+            "response_body": result.response_body,
+            "body_omitted": result.body_omitted,
+            "auth_used": bool(use_auth and self._auth.get((assessment_id, host))),
+        }
+
+    async def replay_compare(
+        self, assessment_id: str, baseline: str, variant: str
+    ) -> dict:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, AssessmentState.TESTING)
+        payloads = []
+        for name in (baseline, variant):
+            if not isinstance(name, str) or not name.startswith("replay-"):
+                raise ValidationError("compare needs two replay evidence names")
+            if not name.endswith(".json"):
+                raise ValidationError("compare needs two replay evidence names")
+            payloads.append(json.loads(self.store.read_evidence(assessment_id, name)))
+        diff = compare_replay_payloads(payloads[0], payloads[1])
+        diff["baseline_evidence"] = baseline
+        diff["variant_evidence"] = variant
+        self.store.append_event(
+            assessment_id,
+            "replay_compared",
+            {
+                "baseline": baseline,
+                "variant": variant,
+                "changed": diff["changed"],
+            },
+        )
+        return diff
+
+    async def finding_create(
+        self,
+        assessment_id: str,
+        *,
+        title: str,
+        severity: str,
+        confidence: str,
+        status: str = "potential",
+        endpoint: str | None = None,
+        description: str = "",
+        evidence: list[str] | None = None,
+    ) -> dict:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, AssessmentState.TESTING)
+        clean_title = str(title or "").strip()
+        if not clean_title or len(clean_title) > _MAX_TITLE:
+            raise ValidationError(f"title must be 1..{_MAX_TITLE} characters")
+        clean_severity = str(severity or "").strip().lower()
+        if clean_severity not in SEVERITIES:
+            raise ValidationError(
+                f"severity must be one of: {', '.join(SEVERITIES)}"
+            )
+        clean_confidence = str(confidence or "").strip().lower()
+        if clean_confidence not in CONFIDENCES:
+            raise ValidationError(
+                f"confidence must be one of: {', '.join(CONFIDENCES)}"
+            )
+        clean_status = str(status or "").strip().lower()
+        if clean_status not in FINDING_STATUSES:
+            raise ValidationError(
+                f"status must be one of: {', '.join(FINDING_STATUSES)}"
+            )
+        clean_description = str(description or "").strip()[:_MAX_DESCRIPTION]
+        clean_endpoint = None if endpoint is None else str(endpoint)[:500]
+        clean_evidence: list[str] = []
+        for name in evidence or []:
+            path = self.store.evidence_path(assessment_id, str(name))
+            if not path.is_file():
+                raise ValidationError(f"evidence not found: {name}")
+            clean_evidence.append(path.name)
+        if len(assessment.findings) >= _MAX_FINDINGS:
+            raise ValidationError(f"finding limit reached ({_MAX_FINDINGS})")
+
+        finding = Finding(
+            id=uuid.uuid4().hex[:16],
+            title=clean_title,
+            severity=clean_severity,
+            confidence=clean_confidence,
+            status=clean_status,
+            endpoint=clean_endpoint,
+            description=clean_description,
+            evidence=clean_evidence,
+        )
+        assessment.findings.append(finding)
+        assessment.add_step("finding_created", {"id": finding.id, "severity": clean_severity})
+        self.store.save(assessment)
+        self.store.append_event(
+            assessment_id,
+            "finding_created",
+            {
+                "id": finding.id,
+                "title": clean_title,
+                "severity": clean_severity,
+                "confidence": clean_confidence,
+                "status": clean_status,
+                "evidence": clean_evidence,
+            },
+            extra_patterns=self.config.redact_extra,
+        )
+        return finding.model_dump(mode="json")
+
+    async def finding_update(
+        self,
+        assessment_id: str,
+        finding_id: str,
+        status: str,
+        note: str | None = None,
+    ) -> dict:
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, AssessmentState.TESTING)
+        clean_status = str(status or "").strip().lower()
+        if clean_status not in FINDING_STATUSES:
+            raise ValidationError(
+                f"status must be one of: {', '.join(FINDING_STATUSES)}"
+            )
+        finding = self._find_finding(assessment, finding_id)
+        finding.status = clean_status
+        finding.updated_at = utc_now()
+        if note:
+            addition = str(note).strip()[:1000]
+            finding.description = (
+                finding.description + "\n" + addition
+            ).strip()[:_MAX_DESCRIPTION]
+        assessment.add_step("finding_updated", {"id": finding.id, "status": clean_status})
+        self.store.save(assessment)
+        self.store.append_event(
+            assessment_id,
+            "finding_updated",
+            {"id": finding.id, "status": clean_status},
+            extra_patterns=self.config.redact_extra,
+        )
+        return finding.model_dump(mode="json")
+
+    def finding_list(self, assessment_id: str) -> dict:
+        assessment = self._load(assessment_id)
+        counts = {status: 0 for status in FINDING_STATUSES}
+        for finding in assessment.findings:
+            counts[finding.status] = counts.get(finding.status, 0) + 1
+        return {
+            "count": len(assessment.findings),
+            "counts": counts,
+            "findings": [
+                finding.model_dump(mode="json") for finding in assessment.findings
+            ],
+        }
+
     # -- internals ---------------------------------------------------------
+
+    def _snapshot_auth(self, assessment_id: str, records: list[TrafficRecord]) -> None:
+        """Keep live auth headers from captured requests in memory for replay."""
+        for record in records:
+            host = (record.host or "").strip().lower()
+            if not host and record.url:
+                host = (urlsplit(record.url).hostname or "").lower()
+            if not host:
+                continue
+            key = (assessment_id, host)
+            for name, value in record.req_headers:
+                if name.strip().lower() not in AUTH_HEADER_NAMES:
+                    continue
+                if not value or value.strip() == "***":
+                    continue
+                self._auth.setdefault(key, {})[name] = value
+
+    def _auth_summary(self, assessment_id: str) -> dict:
+        summary: dict[str, list[str]] = {}
+        for (aid, host), headers in self._auth.items():
+            if aid == assessment_id:
+                summary[host] = sorted(name.lower() for name in headers)
+        return summary
+
+    def _find_finding(self, assessment: Assessment, finding_id: str) -> Finding:
+        if not isinstance(finding_id, str) or not _FINDING_ID_RE.match(finding_id):
+            raise ValidationError("invalid finding id")
+        for finding in assessment.findings:
+            if finding.id == finding_id:
+                return finding
+        raise ValidationError(f"finding not found: {finding_id}")
 
     def _load(self, assessment_id: str) -> Assessment:
         return self.store.load(assessment_id)

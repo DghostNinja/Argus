@@ -28,12 +28,19 @@ capture_start(install_ca, ca_method, route)
 capture_entries / capture_correlate
 capture_stop
 endpoint_inventory
+testing_begin
+auth_set(host, headers) / auth_clear(host)
+replay_send / replay_compare
+finding_create / finding_update / finding_list
 ```
 
 - Use `ui_tap_node` with a label before falling back to pixel taps.
 - Pass passwords and tokens to `ui_text` with `sensitive=true`.
 - Capture screenshots and logcat as evidence.
 - `capture_correlate` is timing-inferred. Verify causality before reporting.
+- Replay and finding tools need the `testing` state; `replay_send` refuses
+  out-of-scope hosts, public hosts without `allow_production` and destructive
+  methods. Keep auth headers in memory via `auth_set`, never in evidence.
 - Respect `assessment_pause` and `assessment_stop`; the engine refuses actions
   anyway, but do not try to work around it.
 

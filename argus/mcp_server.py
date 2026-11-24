@@ -22,12 +22,16 @@ assessment_start, app_install, app_launch, then explore with ui_dump, ui_find,
 ui_tap_node, ui_text, ui_key and ui_swipe. For traffic discovery call
 capture_start, drive the app, then capture_entries; capture_stop stores redacted
 traffic plus the endpoint inventory. capture_correlate only infers which
-requests followed an action from timing, so verify before reporting. Capture
-screenshots and logcat as evidence. All device access goes through Barrel. Never ask for or store
-credentials: pass a password to ui_text with sensitive=true so it is not logged.
-Respect pause and stop. Do not attempt destructive or financial actions; the
-engine refuses them. If a device action fails, read the error and fix the cause
-(device not attached, app not installed, UI not idle)."""
+requests followed an action from timing, so verify before reporting. When the
+app is explored, call testing_begin; replay in-scope requests with replay_send
+(auth is snapshotted from capture or supplied via auth_set), compare two runs
+with replay_compare, and record results with finding_create, finding_update and
+finding_list. Capture screenshots and logcat as evidence. All device access goes
+through Barrel. Never ask for or store credentials: pass a password to ui_text
+with sensitive=true so it is not logged. Respect pause and stop. Do not attempt
+destructive or financial actions; the engine refuses them. If a device action
+fails, read the error and fix the cause (device not attached, app not
+installed, UI not idle)."""
 
 
 @dataclass
@@ -413,6 +417,135 @@ async def endpoint_inventory(ctx: Context, assessment_id: str) -> dict:
     sensitivity tags."""
     runtime = _rt(ctx)
     return await _run(runtime.orchestrator.endpoint_inventory(assessment_id))
+
+
+@app.tool()
+async def testing_begin(ctx: Context, assessment_id: str) -> dict:
+    """Move the assessment into the testing state so replay_send,
+    replay_compare and finding tools become available. Requires a proven device
+    (device_ready or later). Idempotent when already testing."""
+    runtime = _rt(ctx)
+    return _summary(await _run(runtime.orchestrator.testing_begin(assessment_id)))
+
+
+@app.tool()
+async def auth_set(
+    ctx: Context, assessment_id: str, host: str, headers: dict
+) -> dict:
+    """Store live auth headers (Authorization, Cookie, X-API-Key and similar)
+    for one in-scope host in memory only. Values are never persisted and never
+    appear in events; only header names are logged. replay_send merges them
+    automatically. Captured traffic also snapshots these headers per host."""
+    runtime = _rt(ctx)
+    return await _run(runtime.orchestrator.auth_set(assessment_id, host, headers))
+
+
+@app.tool()
+async def auth_clear(ctx: Context, assessment_id: str, host: str | None = None) -> dict:
+    """Drop stored auth headers for one host, or for every host of the
+    assessment when host is omitted."""
+    runtime = _rt(ctx)
+    return await _run(runtime.orchestrator.auth_clear(assessment_id, host))
+
+
+@app.tool()
+async def replay_send(
+    ctx: Context,
+    assessment_id: str,
+    method: str,
+    url: str,
+    headers: dict | None = None,
+    body: str | None = None,
+    use_auth: bool = True,
+) -> dict:
+    """Send one HTTP request to an in-scope host and store the redacted
+    request/response as evidence. Requires the testing state. The host must be
+    in allowed_hosts; public hosts additionally require allow_production.
+    Destructive methods (DELETE and friends) are refused by the engine. Set
+    use_auth=false to send without the stored auth headers. Returns the
+    evidence file name for finding_create and replay_compare."""
+    runtime = _rt(ctx)
+    return await _run(
+        runtime.orchestrator.replay_send(
+            assessment_id,
+            method,
+            url,
+            headers=headers,
+            body=body,
+            use_auth=use_auth,
+        )
+    )
+
+
+@app.tool()
+async def replay_compare(
+    ctx: Context, assessment_id: str, baseline: str, variant: str
+) -> dict:
+    """Diff two replay evidence file names produced by replay_send. Reports
+    status changes, body length delta, JSON key differences and a verdict of
+    'difference detected' or 'no difference'. A difference is a lead, not a
+    finding: confirm it with a repeat run before reporting."""
+    runtime = _rt(ctx)
+    return await _run(
+        runtime.orchestrator.replay_compare(assessment_id, baseline, variant)
+    )
+
+
+@app.tool()
+async def finding_create(
+    ctx: Context,
+    assessment_id: str,
+    title: str,
+    severity: str,
+    confidence: str,
+    status: str = "potential",
+    endpoint: str | None = None,
+    description: str = "",
+    evidence: list[str] | None = None,
+) -> dict:
+    """Record a finding in the testing state. severity: critical, high,
+    medium, low or info. confidence: high, medium or low. status: potential,
+    confirmed or rejected. evidence lists replay evidence or other evidence
+    file names that prove the claim; each must already exist."""
+    runtime = _rt(ctx)
+    return await _run(
+        runtime.orchestrator.finding_create(
+            assessment_id,
+            title=title,
+            severity=severity,
+            confidence=confidence,
+            status=status,
+            endpoint=endpoint,
+            description=description,
+            evidence=evidence,
+        )
+    )
+
+
+@app.tool()
+async def finding_update(
+    ctx: Context,
+    assessment_id: str,
+    finding_id: str,
+    status: str,
+    note: str | None = None,
+) -> dict:
+    """Change a finding's status (potential, confirmed or rejected) and
+    optionally append a note to its description. Use confirmed only when the
+    evidence reproduces the issue."""
+    runtime = _rt(ctx)
+    return await _run(
+        runtime.orchestrator.finding_update(
+            assessment_id, finding_id, status, note=note
+        )
+    )
+
+
+@app.tool()
+async def finding_list(ctx: Context, assessment_id: str) -> dict:
+    """List the assessment's findings with counts per status."""
+    runtime = _rt(ctx)
+    return runtime.orchestrator.finding_list(assessment_id)
 
 
 def main() -> None:

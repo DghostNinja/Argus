@@ -54,6 +54,24 @@ class Endpoint(BaseModel):
     last_seen: int = 0
 
 
+SEVERITIES = ("critical", "high", "medium", "low", "info")
+CONFIDENCES = ("high", "medium", "low")
+FINDING_STATUSES = ("potential", "confirmed", "rejected")
+
+
+class Finding(BaseModel):
+    id: str
+    title: str
+    severity: str
+    confidence: str
+    status: str = "potential"
+    endpoint: str | None = None
+    description: str = ""
+    evidence: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=utc_now)
+    updated_at: str = Field(default_factory=utc_now)
+
+
 class Assessment(BaseModel):
     id: str
     name: str
@@ -66,6 +84,7 @@ class Assessment(BaseModel):
     capture_active: bool = False
     capture_port: int | None = None
     endpoints: list[Endpoint] = Field(default_factory=list)
+    findings: list[Finding] = Field(default_factory=list)
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
     steps: list[Step] = Field(default_factory=list)

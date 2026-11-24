@@ -32,7 +32,7 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 from argus.config import DEFAULT_BARREL_BIN  # noqa: E402
 
-EXPECTED_TOOLS = 28
+EXPECTED_TOOLS = 36
 TRAFFIC_TOOLS = {
     "capture_start",
     "capture_status",
@@ -134,6 +134,21 @@ async def run() -> None:
 
                 alive = await ok("assessment_status", assessment_id=assessment_id)
                 check(alive["state"] == "configured", "server is healthy after tool errors")
+
+                for tool, kwargs in (
+                    ("testing_begin", {}),
+                    ("replay_send", {"method": "GET", "url": "https://api.example.com/v1"}),
+                    ("replay_compare", {"baseline": "replay-x.json", "variant": "replay-y.json"}),
+                    ("finding_create", {"title": "t", "severity": "low", "confidence": "low"}),
+                ):
+                    result = await call(tool, assessment_id=assessment_id, **kwargs)
+                    check(
+                        result.isError and "state" in result.content[0].text.lower(),
+                        f"{tool} is refused before testing state",
+                    )
+
+                findings = await ok("finding_list", assessment_id=assessment_id)
+                check(findings["count"] == 0, "finding_list is readable before testing")
 
                 events = await ok("assessment_events", assessment_id=assessment_id)
                 check(len(events["events"]) > 0, "events are recorded")

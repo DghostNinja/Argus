@@ -21,7 +21,7 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
   |                                 |
   +--> adb / frida-server           +--> barrel-mcp child process
                                     +--> assessment store
-                                    +--> HTTP replay engine (Phase 4)
+                                    +--> HTTP replay engine
 ```
 
 ## What works now
@@ -31,14 +31,14 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 | 1 | Assessment, architecture, safety model | Done |
 | 2 | Device control, app lifecycle, UI exploration, screenshots, logcat | Done |
 | 3 | Proxy capture, CA install, routing, endpoint inventory, action correlation | Done |
-| 4 | Controlled security tests and request replay | Planned |
+| 4 | Controlled security tests and request replay | Done |
 | 5 | Reporting, severity, export | Planned |
 | 6 | Autonomous campaigns: unattended scoped runs, scheduling, device pools, regression diff | Planned |
 | 7 | APK static triage: manifest, exported components, secrets, pinning config (SAST) | Planned |
 | 8 | Runtime instrumentation via Frida: crypto/SSL checks, tamper and pinning detection (IAST) | Planned |
 | 9 | Enterprise integration: headless CI, SARIF export, policy profiles, audit trail | Planned |
 
-The MCP server exposes 28 tools. The Barrel 0.4.0 build exposes 43, including
+The MCP server exposes 36 tools. The Barrel 0.4.0 build exposes 43, including
 the structured traffic tools Argus uses. See the
 [Barrel docs](https://barrelhq.org/docs) for installation and release notes.
 Design details and tradeoffs are in [docs/architecture.md](docs/architecture.md).
@@ -68,6 +68,8 @@ created -> configured -> device_ready -> installed -> explored -> testing
 - `start` asks Barrel for attached devices and moves to `device_ready`.
 - `install` and `launch` are explicit; Argus never installs implicitly.
 - `ui_dump` moves `installed` to `explored`.
+- `testing_begin` moves `device_ready` (or later) to `testing` and unlocks
+  replay and finding tools. API-only targets may skip install and exploration.
 - `pause` blocks every device action in the engine, not just in the prompt.
 - `stop` is terminal for the session.
 
@@ -88,6 +90,21 @@ sensitivity tags are aggregated per endpoint.
 
 Correlation is explicitly `inferred`: the proxy sees time, not intent. Treat it
 as a lead, not proof.
+
+### Controlled tests
+
+`testing_begin` opens the testing state. `replay_send` then issues one HTTP
+request against an in-scope host and stores the redacted request/response as
+evidence; `replay_compare` diffs two such runs into a verdict. Auth headers are
+snapshotted from captured traffic into memory only (or supplied with
+`auth_set`), merged into replay requests, and never persisted. Findings are
+recorded with `finding_create`, moved through `potential` / `confirmed` /
+`rejected` with `finding_update`, and listed with `finding_list`.
+
+The engine enforces the safety rules itself: the host must be in
+`allowed_hosts`, public hosts additionally require `allow_production`,
+destructive methods such as `DELETE` are refused, and every replay writes
+redacted evidence.
 
 ## Prerequisites
 
@@ -208,7 +225,7 @@ python3 scripts/mcp_smoke.py
 ```
 
 This starts the server exactly as a harness does and checks the tool surface,
-state gates, error handling and event log. It expects 28 tools.
+state gates, error handling and event log. It expects 36 tools.
 
 ### 5. Live capture test with a device
 
@@ -251,6 +268,9 @@ capture_entries
 capture_correlate
 capture_stop
 endpoint_inventory
+testing_begin
+replay_send / replay_compare
+finding_create / finding_list
 ```
 
 Rules the engine enforces:
@@ -261,6 +281,8 @@ Rules the engine enforces:
 - Malformed assessment ids, package names, device serials, hosts, UI text and
   key events are rejected before they reach a shell.
 - Production hosts are refused unless `allow_production` is set.
+- Replay and finding tools require the `testing` state, an in-scope host and a
+  non-destructive method; auth headers are memory-only.
 
 Passwords and tokens must be sent with `ui_text(..., sensitive=true)`. The value
 still reaches the device but is never written to events or evidence.
@@ -320,6 +342,25 @@ Harnesses prefix these with the server name, for example
 - `bind`: needs root, active immediately, gone after reboot.
 - `magisk`: needs root, durable module, reboot required.
 
+### Testing
+
+| Tool | Arguments | Result |
+|------|-----------|--------|
+| `testing_begin` | `assessment_id` | Enters the `testing` state (idempotent) |
+| `auth_set` | `assessment_id`, `host`, `headers` | In-memory auth headers for one host |
+| `auth_clear` | `assessment_id`, `host` | Drops stored auth headers |
+| `replay_send` | `assessment_id`, `method`, `url`, `headers`, `body`, `use_auth` | One in-scope request plus redacted evidence |
+| `replay_compare` | `assessment_id`, `baseline`, `variant` | Structured diff of two replay evidence files |
+| `finding_create` | `assessment_id`, `title`, `severity`, `confidence`, `status`, `endpoint`, `description`, `evidence` | New finding |
+| `finding_update` | `assessment_id`, `finding_id`, `status`, `note` | Updated finding status |
+| `finding_list` | `assessment_id` | Findings with counts per status |
+
+`severity` is `critical`, `high`, `medium`, `low` or `info`; `confidence` and
+`status` use `high`/`medium`/`low` and `potential`/`confirmed`/`rejected`.
+Replay refuses out-of-scope hosts, public hosts without `allow_production`,
+and destructive methods. Auth values live only in process memory: events and
+evidence record header names, never values.
+
 ## Traffic workflow in detail
 
 ### HTTP and HTTPS
@@ -354,7 +395,7 @@ The inventory tags endpoints by path and query keywords:
 `authentication`, `admin`, `account`, `transaction`, `upload`, `export`,
 `debug`, `graphql`.
 
-These are leads for Phase 4 testing, not vulnerabilities.
+These are leads for testing, not vulnerabilities.
 
 ## Evidence and data layout
 
@@ -422,8 +463,10 @@ tests or the smoke test.
 
 ## Known limits
 
-- Phase 4 replay and controlled tests are not implemented yet. `httpx` is
-  reserved for that. Planned phases 4–9 are listed in the phase table above.
+- Phase 4 ships single-request replay, baseline/variant comparison and a
+  findings pipeline. Canned exploit modules and randomized test plans are not
+  implemented; the agent composes multi-step checks itself. Planned phases 5–9
+  are listed in the phase table above.
 - The capture window is the 200 most recent Barrel entries.
 - Correlation is timing-based and can attribute background traffic to the wrong
   action.

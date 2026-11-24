@@ -19,3 +19,7 @@ class BarrelError(ArgusError):
 
 class BarrelToolError(ArgusError):
     """A Barrel tool returned isError. The message is already redacted."""
+
+
+class ReplayError(ArgusError):
+    """A replay request failed in transit (timeout, DNS, connection)."""
