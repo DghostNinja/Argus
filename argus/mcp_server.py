@@ -26,12 +26,13 @@ requests followed an action from timing, so verify before reporting. When the
 app is explored, call testing_begin; replay in-scope requests with replay_send
 (auth is snapshotted from capture or supplied via auth_set), compare two runs
 with replay_compare, and record results with finding_create, finding_update and
-finding_list. Capture screenshots and logcat as evidence. All device access goes
-through Barrel. Never ask for or store credentials: pass a password to ui_text
-with sensitive=true so it is not logged. Respect pause and stop. Do not attempt
-destructive or financial actions; the engine refuses them. If a device action
-fails, read the error and fix the cause (device not attached, app not
-installed, UI not idle)."""
+finding_list. Finish with report_generate (Markdown, JSON and CSV exports in
+the evidence directory). Capture screenshots and logcat as evidence. All device
+access goes through Barrel. Never ask for or store credentials: pass a password
+to ui_text with sensitive=true so it is not logged. Respect pause and stop. Do
+not attempt destructive or financial actions; the engine refuses them. If a
+device action fails, read the error and fix the cause (device not attached, app
+not installed, UI not idle)."""
 
 
 @dataclass
@@ -546,6 +547,22 @@ async def finding_list(ctx: Context, assessment_id: str) -> dict:
     """List the assessment's findings with counts per status."""
     runtime = _rt(ctx)
     return runtime.orchestrator.finding_list(assessment_id)
+
+
+@app.tool()
+async def report_generate(
+    ctx: Context,
+    assessment_id: str,
+    formats: list[str] | None = None,
+) -> dict:
+    """Write the assessment report into the evidence directory as Markdown,
+    canonical JSON and/or a findings CSV (default: all three). Requires the
+    testing state; the first report moves the assessment to reported, and
+    regenerating from reported overwrites the files."""
+    runtime = _rt(ctx)
+    return await _run(
+        runtime.orchestrator.report_generate(assessment_id, formats=formats)
+    )
 
 
 def main() -> None:

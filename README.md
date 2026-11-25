@@ -32,13 +32,13 @@ barrel-mcp (device truth)       argus-mcp (state, evidence, tests)
 | 2 | Device control, app lifecycle, UI exploration, screenshots, logcat | Done |
 | 3 | Proxy capture, CA install, routing, endpoint inventory, action correlation | Done |
 | 4 | Controlled security tests and request replay | Done |
-| 5 | Reporting, severity, export | Planned |
+| 5 | Reporting, severity, export | Done |
 | 6 | Autonomous campaigns: unattended scoped runs, scheduling, device pools, regression diff | Planned |
 | 7 | APK static triage: manifest, exported components, secrets, pinning config (SAST) | Planned |
 | 8 | Runtime instrumentation via Frida: crypto/SSL checks, tamper and pinning detection (IAST) | Planned |
 | 9 | Enterprise integration: headless CI, SARIF export, policy profiles, audit trail | Planned |
 
-The MCP server exposes 36 tools. The Barrel 0.4.0 build exposes 43, including
+The MCP server exposes 37 tools. The Barrel 0.4.0 build exposes 43, including
 the structured traffic tools Argus uses. See the
 [Barrel docs](https://barrelhq.org/docs) for installation and release notes.
 Design details and tradeoffs are in [docs/architecture.md](docs/architecture.md).
@@ -59,7 +59,7 @@ Design details and tradeoffs are in [docs/architecture.md](docs/architecture.md)
 ### Assessment state machine
 
 ```
-created -> configured -> device_ready -> installed -> explored -> testing
+created -> configured -> device_ready -> installed -> explored -> testing -> reported
                                                     \-> paused / stopped
 ```
 
@@ -70,6 +70,9 @@ created -> configured -> device_ready -> installed -> explored -> testing
 - `ui_dump` moves `installed` to `explored`.
 - `testing_begin` moves `device_ready` (or later) to `testing` and unlocks
   replay and finding tools. API-only targets may skip install and exploration.
+- `report_generate` writes the report and moves `testing` to `reported`.
+  Reporting, replay and finding tools stay available afterwards, so findings
+  can still be fixed and the report rebuilt.
 - `pause` blocks every device action in the engine, not just in the prompt.
 - `stop` is terminal for the session.
 
@@ -100,6 +103,12 @@ snapshotted from captured traffic into memory only (or supplied with
 `auth_set`), merged into replay requests, and never persisted. Findings are
 recorded with `finding_create`, moved through `potential` / `confirmed` /
 `rejected` with `finding_update`, and listed with `finding_list`.
+
+`report_generate` then writes `report.md`, `report.json` and `findings.csv`
+into the assessment's evidence directory: severity-sorted findings with
+evidence excerpts, endpoint coverage with an honest untested-endpoints note,
+and a canonical JSON export. The first report moves the assessment to
+`reported`; regenerating overwrites the files.
 
 The engine enforces the safety rules itself: the host must be in
 `allowed_hosts`, public hosts additionally require `allow_production`,
@@ -225,7 +234,7 @@ python3 scripts/mcp_smoke.py
 ```
 
 This starts the server exactly as a harness does and checks the tool surface,
-state gates, error handling and event log. It expects 36 tools.
+state gates, error handling and event log. It expects 37 tools.
 
 ### 5. Live capture test with a device
 
@@ -271,6 +280,7 @@ endpoint_inventory
 testing_begin
 replay_send / replay_compare
 finding_create / finding_list
+report_generate
 ```
 
 Rules the engine enforces:
@@ -360,6 +370,17 @@ Harnesses prefix these with the server name, for example
 Replay refuses out-of-scope hosts, public hosts without `allow_production`,
 and destructive methods. Auth values live only in process memory: events and
 evidence record header names, never values.
+
+### Reporting
+
+| Tool | Arguments | Result |
+|------|-----------|--------|
+| `report_generate` | `assessment_id`, `formats` | Writes `report.md`, `report.json` and/or `findings.csv` into evidence; moves `testing` to `reported` |
+
+`formats` defaults to `["md", "json", "csv"]`. The Markdown report sorts
+confirmed findings first by severity, embeds one-line excerpts from replay
+evidence, tables every inventoried endpoint, and states how many endpoints
+have no finding recorded — absence of a finding is not proof of safety.
 
 ## Traffic workflow in detail
 
@@ -463,10 +484,11 @@ tests or the smoke test.
 
 ## Known limits
 
-- Phase 4 ships single-request replay, baseline/variant comparison and a
-  findings pipeline. Canned exploit modules and randomized test plans are not
-  implemented; the agent composes multi-step checks itself. Planned phases 5–9
-  are listed in the phase table above.
+- Phase 5 ships Markdown, JSON and CSV reporting. There is no HTML/SARIF
+  export, no automatic severity scoring and no retest tracking yet; severity
+  and confidence are assigned by the operator. Planned phases 6–9 are listed
+  in the phase table above. Phase 4 canned exploit modules are not
+  implemented; the agent composes multi-step checks itself.
 - The capture window is the 200 most recent Barrel entries.
 - Correlation is timing-based and can attribute background traffic to the wrong
   action.

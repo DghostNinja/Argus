@@ -23,6 +23,14 @@ from .models import (
     utc_now,
 )
 from .redact import SENSITIVE_HEADERS, redact_text
+from .report import (
+    REPORT_FILES,
+    render_csv,
+    render_json,
+    render_markdown,
+    severity_counts,
+    status_counts,
+)
 from .replay import (
     AUTH_HEADER_NAMES,
     ReplayEngine,
@@ -47,17 +55,23 @@ _ACTIVE_STATES = {
     AssessmentState.INSTALLED,
     AssessmentState.EXPLORED,
     AssessmentState.TESTING,
+    AssessmentState.REPORTED,
 }
 _TESTING_STATES = {
     AssessmentState.DEVICE_READY,
     AssessmentState.INSTALLED,
     AssessmentState.EXPLORED,
     AssessmentState.TESTING,
+    AssessmentState.REPORTED,
 }
 _MAX_TEXT = 4096
 _MAX_TITLE = 200
 _MAX_DESCRIPTION = 4000
 _MAX_FINDINGS = 200
+_REPORT_STATES = {
+    AssessmentState.TESTING,
+    AssessmentState.REPORTED,
+}
 
 
 def parse_device_serials(output: str) -> list[str]:
@@ -318,6 +332,7 @@ class Orchestrator:
             AssessmentState.INSTALLED,
             AssessmentState.EXPLORED,
             AssessmentState.TESTING,
+            AssessmentState.REPORTED,
         )
         package = self._package(assessment)
         output = await self.barrel.launch_package(package, self._device(assessment))
@@ -677,7 +692,7 @@ class Orchestrator:
     async def testing_begin(self, assessment_id: str) -> Assessment:
         assessment = self._load(assessment_id)
         self._ensure_active(assessment)
-        if assessment.state == AssessmentState.TESTING:
+        if assessment.state in (AssessmentState.TESTING, AssessmentState.REPORTED):
             return assessment
         self._ensure_state(
             assessment,
@@ -756,7 +771,7 @@ class Orchestrator:
     ) -> dict:
         assessment = self._load(assessment_id)
         self._ensure_active(assessment)
-        self._ensure_state(assessment, AssessmentState.TESTING)
+        self._ensure_state(assessment, *_REPORT_STATES)
         clean_method = check_method(method)
         if not isinstance(url, str) or len(url) > 4096:
             raise ValidationError("url must be a string of at most 4096 characters")
@@ -836,7 +851,7 @@ class Orchestrator:
     ) -> dict:
         assessment = self._load(assessment_id)
         self._ensure_active(assessment)
-        self._ensure_state(assessment, AssessmentState.TESTING)
+        self._ensure_state(assessment, *_REPORT_STATES)
         payloads = []
         for name in (baseline, variant):
             if not isinstance(name, str) or not name.startswith("replay-"):
@@ -872,7 +887,7 @@ class Orchestrator:
     ) -> dict:
         assessment = self._load(assessment_id)
         self._ensure_active(assessment)
-        self._ensure_state(assessment, AssessmentState.TESTING)
+        self._ensure_state(assessment, *_REPORT_STATES)
         clean_title = str(title or "").strip()
         if not clean_title or len(clean_title) > _MAX_TITLE:
             raise ValidationError(f"title must be 1..{_MAX_TITLE} characters")
@@ -939,7 +954,7 @@ class Orchestrator:
     ) -> dict:
         assessment = self._load(assessment_id)
         self._ensure_active(assessment)
-        self._ensure_state(assessment, AssessmentState.TESTING)
+        self._ensure_state(assessment, *_REPORT_STATES)
         clean_status = str(status or "").strip().lower()
         if clean_status not in FINDING_STATUSES:
             raise ValidationError(
@@ -976,7 +991,113 @@ class Orchestrator:
             ],
         }
 
+    async def report_generate(
+        self, assessment_id: str, formats: list[str] | None = None
+    ) -> dict:
+        """Write report.md / report.json / findings.csv into evidence/.
+
+        The first report moves the assessment from testing to reported;
+        regenerating from reported overwrites the files. Testing tools stay
+        available afterwards, so findings can still be fixed and the report
+        rebuilt.
+        """
+        assessment = self._load(assessment_id)
+        self._ensure_active(assessment)
+        self._ensure_state(assessment, *_REPORT_STATES)
+        requested = formats if formats is not None else ["md", "json", "csv"]
+        if not isinstance(requested, list) or not requested:
+            raise ValidationError("formats must be a non-empty list")
+        clean: list[str] = []
+        for item in requested:
+            name = str(item).strip().lower()
+            if name not in REPORT_FILES:
+                raise ValidationError(f"unknown format: {name}; use md, json or csv")
+            if name not in clean:
+                clean.append(name)
+
+        generated_at = utc_now()
+        excerpts = self._evidence_excerpts(
+            assessment_id,
+            sorted(
+                {
+                    name
+                    for finding in assessment.findings
+                    for name in finding.evidence
+                }
+            ),
+        )
+        files: list[dict] = []
+        for name in clean:
+            if name == "md":
+                data = render_markdown(
+                    assessment, excerpts, generated_at
+                ).encode("utf-8")
+            elif name == "json":
+                data = json.dumps(
+                    render_json(assessment, generated_at),
+                    indent=2,
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            else:
+                data = render_csv(assessment.findings).encode("utf-8")
+            path = self.store.write_evidence(assessment_id, REPORT_FILES[name], data)
+            files.append({"name": path.name, "bytes": path.stat().st_size})
+
+        transitioned = assessment.state is AssessmentState.TESTING
+        if transitioned:
+            assessment.state = AssessmentState.REPORTED
+        file_names = [item["name"] for item in files]
+        assessment.add_step(
+            "report_generated", {"formats": clean, "files": file_names}
+        )
+        self.store.save(assessment)
+        self.store.append_event(
+            assessment_id,
+            "report_generated",
+            {
+                "formats": clean,
+                "files": file_names,
+                "state": assessment.state.value,
+            },
+            extra_patterns=self.config.redact_extra,
+        )
+        return {
+            "ok": True,
+            "state": assessment.state.value,
+            "transitioned": transitioned,
+            "files": files,
+            "summary": {
+                "findings": len(assessment.findings),
+                "severity_counts": severity_counts(assessment.findings),
+                "status_counts": status_counts(assessment.findings),
+                "endpoints": len(assessment.endpoints),
+            },
+        }
+
     # -- internals ---------------------------------------------------------
+
+    def _evidence_excerpts(
+        self, assessment_id: str, names: list[str]
+    ) -> dict[str, str]:
+        """One-line excerpt per evidence file; JSON replays show the exchange."""
+        excerpts: dict[str, str] = {}
+        for name in names:
+            excerpt = "stored evidence file"
+            if name.endswith(".json"):
+                try:
+                    payload = json.loads(self.store.read_evidence(assessment_id, name))
+                except (OSError, ValueError, ValidationError):
+                    payload = None
+                if isinstance(payload, dict):
+                    request = payload.get("request") or {}
+                    response = payload.get("response") or {}
+                    method = request.get("method", "?")
+                    url = request.get("url", "?")
+                    status = response.get("status", "?")
+                    excerpt = f"{method} {url} -> {status}"
+            excerpts[name] = excerpt
+        return excerpts
+
 
     def _snapshot_auth(self, assessment_id: str, records: list[TrafficRecord]) -> None:
         """Keep live auth headers from captured requests in memory for replay."""

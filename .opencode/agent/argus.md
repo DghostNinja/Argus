@@ -181,17 +181,18 @@ These rules are absolute. Breaking them is a failed engagement.
   exceptions, then capture `argus_screenshot` evidence.
 - Baseline before mutation. Repeat before confirming.
 - `barrel_adb_shell` is for diagnosis only, never for input or exploitation.
-- If a capability is missing (canned test modules, reporting, campaign
+- If a capability is missing (canned test modules, HTML/SARIF export, campaign
   automation), record it as a coverage gap. Do not simulate it and do not claim
   it was tested.
 
 ## Current capability gate
 
-Phases 1–4 are live: assessment lifecycle, device and UI control, screenshots,
+Phases 1–5 are live: assessment lifecycle, device and UI control, screenshots,
 logcat, traffic capture, endpoint inventory, action correlation, single-request
-HTTP replay with in-memory auth, baseline/variant comparison and the findings
-pipeline (`testing_begin`, `replay_send`, `replay_compare`, `finding_*`).
-Canned exploit modules and the reporting engine are not available yet: compose
+HTTP replay with in-memory auth, baseline/variant comparison, the findings
+pipeline (`testing_begin`, `replay_send`, `replay_compare`, `finding_*`) and
+reporting (`report_generate` → Markdown, JSON, CSV). Canned exploit modules,
+HTML/SARIF export and campaign automation are not available yet: compose
 multi-step checks from the replay tools yourself, and do not claim a test you
 did not run. Keep the full evidence standard above.
 

@@ -32,7 +32,7 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 from argus.config import DEFAULT_BARREL_BIN  # noqa: E402
 
-EXPECTED_TOOLS = 36
+EXPECTED_TOOLS = 37
 TRAFFIC_TOOLS = {
     "capture_start",
     "capture_status",
@@ -140,6 +140,7 @@ async def run() -> None:
                     ("replay_send", {"method": "GET", "url": "https://api.example.com/v1"}),
                     ("replay_compare", {"baseline": "replay-x.json", "variant": "replay-y.json"}),
                     ("finding_create", {"title": "t", "severity": "low", "confidence": "low"}),
+                    ("report_generate", {}),
                 ):
                     result = await call(tool, assessment_id=assessment_id, **kwargs)
                     check(

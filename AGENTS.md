@@ -32,6 +32,7 @@ testing_begin
 auth_set(host, headers) / auth_clear(host)
 replay_send / replay_compare
 finding_create / finding_update / finding_list
+report_generate
 ```
 
 - Use `ui_tap_node` with a label before falling back to pixel taps.
@@ -41,6 +42,9 @@ finding_create / finding_update / finding_list
 - Replay and finding tools need the `testing` state; `replay_send` refuses
   out-of-scope hosts, public hosts without `allow_production` and destructive
   methods. Keep auth headers in memory via `auth_set`, never in evidence.
+- `report_generate` writes `report.md` / `report.json` / `findings.csv` into
+  evidence and moves `testing` to `reported`; findings and reports can still be
+  updated afterwards.
 - Respect `assessment_pause` and `assessment_stop`; the engine refuses actions
   anyway, but do not try to work around it.
 

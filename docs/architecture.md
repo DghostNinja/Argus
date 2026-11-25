@@ -63,7 +63,7 @@ can change its test engine without forking device code.
 ## 4. Assessment lifecycle
 
 ```
-created -> configured -> device_ready -> installed -> explored -> testing
+created -> configured -> device_ready -> installed -> explored -> testing -> reported
                     \-> paused / stopped
 ```
 
@@ -76,6 +76,9 @@ created -> configured -> device_ready -> installed -> explored -> testing
 - `testing`: opened by `testing_begin` once a device is ready (or after
   exploration when the assessment ran that far); unlocks replay and finding
   tools. API-only targets may skip install and exploration.
+- `reported`: set by the first `report_generate`; reporting, replay and
+  finding tools stay available so findings can be fixed and the report
+  rebuilt.
 - `paused`: every device action is refused until resume.
 - `stopped`: terminal for the session; resume cannot undo it.
 
@@ -88,7 +91,8 @@ stored state. The orchestrator, not the model, enforces order.
 $ARGUS_DATA_DIR/assessments/<32 hex id>/
   assessment.json      # state, target, APK hash, endpoints, steps, findings
   events.jsonl         # redacted action log
-  evidence/            # screenshots, traffic snapshots, replay runs, inventory
+  evidence/            # screenshots, traffic snapshots, replay runs,
+                       # report.md / report.json / findings.csv, inventory
 ```
 
 - Directories are `0700`; files are `0600`.
@@ -197,8 +201,9 @@ Rules:
 - **Test engine (Phase 4, partial):** single-request replay with in-memory auth
   context, baseline/variant comparison and a findings pipeline are built;
   canned auth/authz/API/logic modules and randomized test plans remain open.
-- **Reporting (Phase 5):** JSON canonical output plus Markdown/HTML, with
-  confirmed and candidate findings separated.
+- **Reporting (Phase 5, shipped):** Markdown, canonical JSON and findings CSV
+  with severity ordering, evidence excerpts and coverage gaps. HTML/SARIF
+  export, automatic severity scoring and retest tracking remain open.
 - **Campaigns (Phase 6):** goal-driven unattended runs, scheduling, checkpoint
   and resume, device pools, regression diffing against a previous run.
 - **Static triage (Phase 7):** APK manifest and artifact analysis that feeds
