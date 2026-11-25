@@ -5,8 +5,7 @@ for enterprise-grade DAST, IAST and SAST-style mobile testing. It plans,
 executes and evidences full assessments — configure a target, prove the device,
 explore the UI, capture traffic, run controlled tests, then report — so testers
 can hand off a scoped engagement and focus on other work. Barrel remains the
-only component that talks to ADB; Barrel is proprietary and distributed as a
-signed binary release.
+only component that talks to ADB.
 
 Autonomy runs inside engine-enforced safety controls, not prompt promises:
 authorization, scope, pause and stop are checked in code, every action is
@@ -119,11 +118,9 @@ redacted evidence.
 
 - Linux host with Python 3.11 or newer.
 - `adb` on `PATH` and a ready device or emulator.
-- A Barrel 0.4.0+ build from the public releases repo:
-  [github.com/DghostNinja/barrel-releases/releases](https://github.com/DghostNinja/barrel-releases/releases).
-  Earlier releases lack the structured traffic tools Argus needs. Barrel source
-  is private; end users install the released `barrel-mcp` binary and point Argus
-  at it. They do not clone or build Barrel. Docs:
+- A Barrel 0.4.0+ `barrel-mcp` binary from the public releases repo:
+  [github.com/DghostNinja/barrel-releases/releases](https://github.com/DghostNinja/barrel-releases/releases)
+  (0.4.0 added the structured traffic tools Argus needs). Docs:
   [barrelhq.org/docs](https://barrelhq.org/docs).
 - Python dependencies (`mcp`, `httpx`, `pydantic`):
 
@@ -500,10 +497,9 @@ tests or the smoke test.
 
 ## License and distribution
 
-Argus license: not set yet. Barrel is proprietary and source-private; only its
-compiled releases are distributed. A public Argus release must therefore depend
-on an official Barrel binary, pin a tested Barrel version, and avoid
-redistributing Barrel source or internal build artifacts.
+Argus license: not set yet. A public Argus release must depend on an official
+Barrel binary, pin a tested Barrel version, and avoid redistributing Barrel
+build artifacts.
 
 Do not publish a release until the Argus license, Barrel version pin and
 third-party notices are decided.

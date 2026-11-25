@@ -35,7 +35,7 @@ Barrel (device truth)           Argus (state, evidence, tests)
 
 - **Barrel** is the only component that talks to ADB. It owns device state,
   installation, UI interaction, screenshots, logcat, proxy capture and CA
-  installation. It is a proprietary binary dependency; its source is private.
+  installation. It is distributed as a binary release.
 - **Argus** owns assessment state, validation, redaction, evidence and the
   security test engine. It never shells out to ADB directly.
 - **The agent** is the reasoning layer. It selects the next tool call and

@@ -77,6 +77,6 @@ python3 -m compileall -q argus argus_mcp.py
 python3 scripts/mcp_smoke.py
 ```
 
-Do not commit or push unless the operator explicitly asks. Barrel is a
-proprietary binary dependency; do not add its source or internal build details
-to public-facing files.
+Do not commit or push unless the operator explicitly asks. Barrel is a binary
+dependency; do not add its source or internal build details to public-facing
+files.
